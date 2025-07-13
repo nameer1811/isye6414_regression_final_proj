@@ -70,7 +70,8 @@ load_and_combine_borrower_data <- function(filepath, sheet_numbers, years) {
 }
 
 dem_data <- load_and_combine_data("data/dem") %>%
-  rename(race_white = estimate_race_total_population_one_race_white,
+  rename(total_population = estimate_race_total_population,
+         race_white = estimate_race_total_population_one_race_white,
          race_black = estimate_race_total_population_one_race_black_or_african_american,
          race_asian = estimate_race_total_population_one_race_asian,
          race_native = estimate_race_total_population_one_race_american_indian_and_alaska_native,
@@ -78,20 +79,26 @@ dem_data <- load_and_combine_data("data/dem") %>%
          race_other = estimate_race_total_population_one_race_some_other_race,
          race_two_or_more = estimate_race_total_population_two_or_more_races,
          hispanic_or_latino = estimate_hispanic_or_latino_and_race_total_population_hispanic_or_latino_of_any_race,
+         total_18_or_over_population = estimate_citizen_voting_age_population_citizen_18_and_over_population,
          population_18_or_over_male = estimate_citizen_voting_age_population_citizen_18_and_over_population_male,
          population_18_or_over_female = estimate_citizen_voting_age_population_citizen_18_and_over_population_female) %>%
   select(-contains("estimate")) %>%
   group_by(state, year) %>%
-  summarise(across(everything(), \(x) sum(x, na.rm=TRUE))) %>%
-  ungroup()
+  summarise(across(everything(), ~sum(., na.rm=TRUE))) %>%
+  ungroup() %>%
+  mutate(across(race_two_or_more:hispanic_or_latino, ~./total_population),
+         across(population_18_or_over_male:population_18_or_over_female, ~./total_18_or_over_population))
 
 economic_data <- load_and_combine_data("data/economic") %>%
-  rename(employement_total_employed = estimate_employment_status_population_16_years_and_over_in_labor_force,
-         employment_total_unemployment = estimate_employment_status_population_16_years_and_over_not_in_labor_force) %>%
+  rename(employment_total = estimate_employment_status_population_16_years_and_over,
+         employement_total_employed = estimate_employment_status_population_16_years_and_over_in_labor_force,
+         employment_total_unemployed = estimate_employment_status_population_16_years_and_over_not_in_labor_force) %>%
   select(-contains("estimate"))  %>%
   group_by(state, year) %>%
-  summarise(across(everything(), \(x) sum(x, na.rm=TRUE))) %>%
-  ungroup()
+  summarise(across(everything(), ~sum(., na.rm=TRUE))) %>%
+  ungroup() %>%
+  mutate(across(employement_total_employed:employment_total_unemployed, ~./employment_total)) %>%
+  select(-employment_total)
 
 mean_income_data <- load_and_combine_data("data/mean_income") %>%
   group_by(state, year) %>%
@@ -99,16 +106,23 @@ mean_income_data <- load_and_combine_data("data/mean_income") %>%
   ungroup()
 
 social_char_data <- load_and_combine_data("data/social_char") %>%
-  rename(average_family_size = estimate_households_by_type_total_households_average_family_size,
-         total_veteran = estimate_veteran_status_civilian_population_18_years_and_over,
+  rename(average_household_size = estimate_households_by_type_total_households_average_household_size,
+         total_veteran_eligible = estimate_veteran_status_civilian_population_18_years_and_over,
+         total_veteran = estimate_veteran_status_civilian_population_18_years_and_over_civilian_veterans,
+         total_population_degree = estimate_educational_attainment_population_25_years_and_over,
          total_population_bachelors_degree = estimate_educational_attainment_population_25_years_and_over_bachelor_s_degree_or_higher,
          total_foreign_born_pop = estimate_u_s_citizenship_status_foreign_born_population,
-         total_household_w_internet_and_computer = estimate_computers_and_internet_use_total_households) %>%
+         total_households = estimate_households_by_type_total_households,
+         total_household_w_internet = estimate_computers_and_internet_use_total_households_with_a_broadband_internet_subscription) %>%
   select(-contains("estimate")) %>%
   group_by(state, year) %>%
-  summarise(across(-average_family_size, \(x) sum(x, na.rm=TRUE)), 
-            average_family_size = mean(average_family_size, na.rm=TRUE)) %>%
-  ungroup()
+  summarise(across(-average_household_size, ~sum(., na.rm=TRUE)), 
+            average_household_size = mean(average_household_size, na.rm=TRUE)) %>%
+  ungroup() %>%
+  mutate(total_vetetan = total_veteran/total_veteran_eligible, 
+         total_population_bachelors_degree = total_population_bachelors_degree/total_population_degree,
+         total_household_w_internet = total_household_w_internet/total_households) %>%
+  select(-c(total_veteran_eligible, total_population_degree, total_households))
 
 borrower_data <-load_and_combine_borrower_data("data/Student-loan-update-2025-Mangrum.xlsx", 11:15, 2019:2023)
 
@@ -117,12 +131,16 @@ combined_data <- dem_data %>%
   left_join(mean_income_data, by = c("state", "year")) %>%
   left_join(social_char_data, by = c("state", "year")) %>%
   left_join(borrower_data, by = c("state", "year")) %>%
-  relocate(state, year)
+  relocate(state, year) %>%
+  filter(!state == "Puerto Rico", !state == "District of Columbia") %>%
+  mutate(total_foreign_born_pop = total_foreign_born_pop/total_population,
+         total_borrowers = total_borrowers/total_18_or_over_population) %>%
+  select(-c(total_population, total_18_or_over_population))
 
 combined_data %>%
   select(-state, -year) %>%
   gtsummary::tbl_summary()
 
-write.csv(combined_data, "data/combined_data.csv", row.names = FALSE)
+write.csv(combined_data, "data/combined_clean_data.csv", row.names = FALSE)
 
 
