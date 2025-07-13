@@ -3,7 +3,7 @@ library(janitor)
 library(purrr)
 library(glue)
 library(stringr)
-library(yaml)
+library(readxl)
 
 load_and_combine_data <- function(directory_path) {
   
@@ -55,12 +55,18 @@ load_and_combine_data <- function(directory_path) {
   yearly_data
 }
 
-load_borrower_data <- function(sheet, year){
-  borrower_data <- readxl::read_excel("data/Student-loan-update-2025-Mangrum.xlsx", sheet = sheet, skip = 7) %>%
+load_and_combine_borrower_data <- function(filepath, sheet_numbers, years) {
+
+  combined_borrower_data <- map2_df(sheet_numbers, years, function(sheet, year) {
+    read_excel(filepath, sheet = sheet, skip = 7) %>%
     clean_names() %>%
     mutate(year = year)
+  })
   
-  borrower_data
+  final_borrower_data <- combined_borrower_data %>%
+    select(state, year, total_borrowers, total_balance_billions)
+  
+  final_borrower_data
 }
 
 dem_data <- load_and_combine_data("data/dem") %>%
@@ -76,18 +82,21 @@ dem_data <- load_and_combine_data("data/dem") %>%
          population_18_or_over_female = estimate_citizen_voting_age_population_citizen_18_and_over_population_female) %>%
   select(-contains("estimate")) %>%
   group_by(state, year) %>%
-  summarise(across(everything(), \(x) sum(x, na.rm=TRUE)))
+  summarise(across(everything(), \(x) sum(x, na.rm=TRUE))) %>%
+  ungroup()
 
 economic_data <- load_and_combine_data("data/economic") %>%
   rename(employement_total_employed = estimate_employment_status_population_16_years_and_over_in_labor_force,
          employment_total_unemployment = estimate_employment_status_population_16_years_and_over_not_in_labor_force) %>%
   select(-contains("estimate"))  %>%
   group_by(state, year) %>%
-  summarise(across(everything(), \(x) sum(x, na.rm=TRUE)))
+  summarise(across(everything(), \(x) sum(x, na.rm=TRUE))) %>%
+  ungroup()
 
 mean_income_data <- load_and_combine_data("data/mean_income") %>%
   group_by(state, year) %>%
-  summarise(mean_household_income_dollars = mean(estimate_mean_income_dollars_household_income_all_households))
+  summarise(mean_household_income_dollars = mean(estimate_mean_income_dollars_household_income_all_households, na.rm=TRUE)) %>%
+  ungroup()
 
 social_char_data <- load_and_combine_data("data/social_char") %>%
   rename(average_family_size = estimate_households_by_type_total_households_average_family_size,
@@ -97,37 +106,23 @@ social_char_data <- load_and_combine_data("data/social_char") %>%
          total_household_w_internet_and_computer = estimate_computers_and_internet_use_total_households) %>%
   select(-contains("estimate")) %>%
   group_by(state, year) %>%
-  summarise(across(-average_family_size, \(x) sum(x, na.rm=TRUE)), average_family_size = mean(average_family_size))
+  summarise(across(-average_family_size, \(x) sum(x, na.rm=TRUE)), 
+            average_family_size = mean(average_family_size, na.rm=TRUE)) %>%
+  ungroup()
 
-borrower_data_2019 <- load_borrower_data(11, 2019)
-borrower_data_2020 <- load_borrower_data(12, 2020)
-borrower_data_2021 <- load_borrower_data(13, 2021)
-borrower_data_2022 <- load_borrower_data(14, 2022)
-borrower_data_2023 <- load_borrower_data(15, 2023)
-
-borrower_data <- bind_rows(borrower_data_2019, borrower_data_2020, borrower_data_2021, borrower_data_2022, borrower_data_2023) %>%
-  select(state, year, total_borrowers, total_balance_billions)
+borrower_data <-load_and_combine_borrower_data("data/Student-loan-update-2025-Mangrum.xlsx", 11:15, 2019:2023)
 
 combined_data <- dem_data %>%
   left_join(economic_data, by = c("state", "year")) %>%
-  # left_join(mean_income_data, by = c("state", "year")) %>%
-  left_join(social_char_data, by = c("geography", "geographic_area_name", "state", "year")) %>%
-  select(-contains("geograph")) %>%
-  relocate(state, year) %>%
-  mutate(across(-c(state, year), as.numeric))
-
-cleaned_data <- combined_data %>%
-  group_by(state, year) %>%
-  summarise(across(everything(), \(x) sum(x, na.rm=TRUE))) %>%
-  ungroup() %>%
   left_join(mean_income_data, by = c("state", "year")) %>%
-  left_join(borrower_data, by = c("state", "year"))
+  left_join(social_char_data, by = c("state", "year")) %>%
+  left_join(borrower_data, by = c("state", "year")) %>%
+  relocate(state, year)
 
-
-cleaned_data %>%
+combined_data %>%
   select(-state, -year) %>%
   gtsummary::tbl_summary()
 
-write.csv(cleaned_data, "data/cleaned_data.csv")
+write.csv(combined_data, "data/combined_data.csv")
 
 
