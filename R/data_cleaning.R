@@ -123,6 +123,6 @@ combined_data %>%
   select(-state, -year) %>%
   gtsummary::tbl_summary()
 
-write.csv(combined_data, "data/combined_data.csv")
+write.csv(combined_data, "data/combined_data.csv", row.names = FALSE)
 
 
