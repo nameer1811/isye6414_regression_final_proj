@@ -119,7 +119,7 @@ social_char_data <- load_and_combine_data("data/social_char") %>%
   summarise(across(-average_household_size, ~sum(., na.rm=TRUE)), 
             average_household_size = mean(average_household_size, na.rm=TRUE)) %>%
   ungroup() %>%
-  mutate(total_vetetan = total_veteran/total_veteran_eligible, 
+  mutate(total_veteran = total_veteran/total_veteran_eligible, 
          total_population_bachelors_degree = total_population_bachelors_degree/total_population_degree,
          total_household_w_internet = total_household_w_internet/total_households) %>%
   select(-c(total_veteran_eligible, total_population_degree, total_households))
